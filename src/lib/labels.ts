@@ -1,7 +1,13 @@
-import { labelWithClaude } from "./claude";
-import type { SourceKind, SourceLabels } from "./quality";
-import { labelWithQwen } from "./qwen";
+import { z } from "zod";
+import { cheapJson } from "./cheap";
+import { SOURCE_KINDS, type SourceKind } from "./quality";
 import type { Source } from "./types";
+
+// Kinds are validated after parsing, so an unexpected kind is dropped rather than
+// failing the whole reply.
+const LabelsSchema = z.object({
+  labels: z.array(z.object({ id: z.number(), kind: z.string() })),
+});
 
 const LABEL_PROMPT = `Label what kind of website each search result comes from, using its URL, title and snippet.
 
@@ -15,8 +21,8 @@ Only pick a kind when the evidence is clear; otherwise use unknown.
 
 Reply with JSON only, one entry per result: {"labels": [{"id": <result id>, "kind": "<kind>"}]}`;
 
-// Labels the sources the URL rules couldn't, with Qwen (cheapest) when ALIBABA_API_KEY is
-// set and Claude Haiku otherwise or when Qwen fails. Returns only confident labels.
+// Labels the sources the URL rules couldn't, on the cheapest available model (cheap.ts).
+// Returns only confident labels.
 export async function labelSources(question: string, sources: Source[]): Promise<Record<number, SourceKind>> {
   const unlabelled = sources.filter((s) => !s.kind);
   if (unlabelled.length === 0) return {};
@@ -25,20 +31,13 @@ export async function labelSources(question: string, sources: Source[]): Promise
     .map((s) => `<result id="${s.id}">\nURL: ${s.url}\nTitle: ${s.title}\nSnippet: ${s.content.slice(0, 300)}\n</result>`)
     .join("\n")}`;
 
-  let result: SourceLabels | undefined;
-  if (process.env.ALIBABA_API_KEY) {
-    try {
-      result = await labelWithQwen(prompt);
-    } catch (err) {
-      console.warn("Qwen labelling failed; falling back to Claude Haiku", err);
-    }
-  }
-  result ??= await labelWithClaude(prompt);
+  const result = await cheapJson("labelling", prompt, LabelsSchema);
 
   const ids = new Set(unlabelled.map((s) => s.id));
+  const known = new Set<string>(SOURCE_KINDS);
   const labels: Record<number, SourceKind> = {};
   for (const { id, kind } of result.labels) {
-    if (kind !== "unknown" && ids.has(id)) labels[id] = kind;
+    if (known.has(kind) && ids.has(id)) labels[id] = kind as SourceKind;
   }
   return labels;
 }

@@ -1,5 +1,3 @@
-import { z } from "zod";
-
 // Source labels. classifySource is free and rule-based, using only rules that are certain
 // when they match: restricted domains (.gov, .edu, ...) and exact site lists. Sources it
 // leaves unlabelled are labelled by a cheap model from their title and snippet
@@ -20,12 +18,6 @@ export type SourceKind =
 export const SOURCE_KINDS = [
   "official", "company", "government", "academic", "reference", "news", "blog", "forum", "social", "video",
 ] as const satisfies readonly SourceKind[];
-
-// What a labelling model returns: one kind per search result id, or "unknown".
-export const SourceLabelsSchema = z.object({
-  labels: z.array(z.object({ id: z.number(), kind: z.enum([...SOURCE_KINDS, "unknown"]) })),
-});
-export type SourceLabels = z.infer<typeof SourceLabelsSchema>;
 
 export const KIND_LABEL: Record<SourceKind, string> = {
   official: "Official site",

@@ -1,12 +1,12 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
-import { KIND_LABEL, type SourceLabels, SourceLabelsSchema } from "./quality";
+import { KIND_LABEL } from "./quality";
 import type { Citation, HistoryTurn, Source } from "./types";
 
 const client = new Anthropic();
 const MODEL = "claude-opus-5-5";
-const LABEL_MODEL = "claude-haiku-5-5"; // cheap, fast classification of source types
+const CHEAP_MODEL = "claude-haiku-5-5"; // small tasks: source labels, related questions
 
 const BASE_RULES = `- Don't write citation markers like [1] yourself; citations are attached automatically.
 - Each search result's title notes its source type and publish date when known. When sources conflict, give more weight to the subject's own official site, government, academic and recent sources than to forums, social media or old articles.
@@ -136,35 +136,15 @@ export async function* streamAnswer(
   }
 }
 
-export async function relatedQuestions(question: string, sources: Source[]): Promise<string[]> {
+// Runs a small JSON task on Claude Haiku with structured outputs. Used by cheap.ts as the
+// fallback when Qwen is unavailable.
+export async function haikuJson<S extends z.ZodType>(prompt: string, schema: S): Promise<z.infer<S>> {
   const response = await client.messages.parse({
-    model: MODEL,
-    max_tokens: 2000,
-    output_config: {
-      effort: "low",
-      format: zodOutputFormat(z.object({ questions: z.array(z.string()) })),
-    },
-    messages: [
-      {
-        role: "user",
-        content: `A user asked: "${question}"\n\nSearch results they're reading:\n${sources
-          .map((s) => `- ${s.title}: ${s.content.slice(0, 300)}`)
-          .join("\n")}\n\nSuggest 4 short follow-up questions they might ask next. Each should explore a different angle and stand on its own.`,
-      },
-    ],
-  });
-
-  return (response.parsed_output?.questions ?? []).slice(0, 4);
-}
-
-// Labels sources with Claude Haiku using structured outputs (the fallback when Qwen is
-// unavailable; see labels.ts).
-export async function labelWithClaude(prompt: string): Promise<SourceLabels> {
-  const response = await client.messages.parse({
-    model: LABEL_MODEL,
+    model: CHEAP_MODEL,
     max_tokens: 4000,
-    output_config: { effort: "low", format: zodOutputFormat(SourceLabelsSchema) },
+    output_config: { effort: "low", format: zodOutputFormat(schema) },
     messages: [{ role: "user", content: prompt }],
   });
-  return response.parsed_output ?? { labels: [] };
+  if (response.parsed_output == null) throw new Error(`Haiku returned no parseable output (${response.stop_reason})`);
+  return response.parsed_output;
 }

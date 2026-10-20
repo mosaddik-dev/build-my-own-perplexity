@@ -1,6 +1,7 @@
 import { classifySource } from "@/lib/quality";
-import { relatedQuestions, rewriteQuery, streamAnswer } from "@/lib/claude";
+import { rewriteQuery, streamAnswer } from "@/lib/claude";
 import { labelSources } from "@/lib/labels";
+import { relatedQuestions } from "@/lib/related";
 import { searchWeb } from "@/lib/tavily";
 import type { SearchRequest, StreamEvent } from "@/lib/types";
 
